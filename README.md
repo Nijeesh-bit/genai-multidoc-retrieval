@@ -10,7 +10,10 @@ The objective is to create an agent that can handle multiple research articles o
  - Install the necessary Python packages: LlamaIndex (GPT Index), openai, and any other dependencies (e.g., requests, pdfplumber for PDF parsing).
  - Obtain the OpenAI API key (or other model keys for retrieval).
 ```bash
-pip install llama_index openai
+%pip install llama-index-agent-openai
+%pip install llama-index-embeddings-openai
+%pip install llama-index-llms-openai
+!pip install llama-index
 ```
 ### STEP 2: Data Ingestion and Indexing
  - Collect the research articles or documents in a structured format (PDF, Word, or plain text).
@@ -28,42 +31,67 @@ pip install llama_index openai
 
 ## PROGRAM:
 ```python
-import openai
-from llama_index import GPTSimpleVectorIndex, SimpleDirectoryReader
-from llama_index import ServiceContext
+from llama_index.core import (
+    VectorStoreIndex,
+    SimpleKeywordTableIndex,
+    SimpleDirectoryReader,
+)
+from llama_index.core import SummaryIndex
+from llama_index.core.schema import IndexNode
+from llama_index.core.tools import QueryEngineTool, ToolMetadata
+from llama_index.llms.openai import OpenAI
+from llama_index.core.callbacks import CallbackManager
+from pathlib import Path
+import requests
+for title in wiki_titles:
+    response = requests.get(
+        "https://en.wikipedia.org/w/api.php",
+        params={
+            "action": "query",
+            "format": "json",
+            "titles": title,
+            "prop": "extracts",
+            # 'exintro': True,
+            "explaintext": True,
+        },
+    ).json()
+    page = next(iter(response["query"]["pages"].values()))
+    wiki_text = page["extract"]
 
-# Step 1: Set OpenAI API Key (for LlamaIndex to use)
-openai.api_key = 'your-openai-api-key'  # Replace with your actual OpenAI API key
+    data_path = Path("data")
+    if not data_path.exists():
+        Path.mkdir(data_path)
 
-# Step 2: Load and index multiple documents
-def build_document_index(doc_directory: str):
-    # Load documents from the directory (can be PDFs, text files, etc.)
-    documents = SimpleDirectoryReader(doc_directory).load_data()
-    
-    # Create an index using LlamaIndex
-    service_context = ServiceContext.from_defaults()
-    index = GPTSimpleVectorIndex.from_documents(documents, service_context=service_context)
-    
-    return index
+    with open(data_path / f"{title}.txt", "w") as fp:
+        fp.write(wiki_text)
 
-# Step 3: Query the index and synthesize the result
-def query_index(index, user_query: str) -> str:
-    response = index.query(user_query)
-    return response.response
+# Load all wiki documents
+city_docs = {}
+for wiki_title in wiki_titles:
+    city_docs[wiki_title] = SimpleDirectoryReader(
+        input_files=[f"data/{wiki_title}.txt"]
+    ).load_data()
 
-# Example Usage:
-doc_directory = 'path_to_your_documents'
-index = build_document_index(doc_directory)
+import os
+os.environ["OPENAI_API_KEY"] = "your-api-key"
 
-# Query the index with a sample question
-user_query = "What are the main findings of the research on AI in healthcare?"
-response = query_index(index, user_query)
+from llama_index.agent.openai import OpenAIAgent
 
-# Output the result
-print("Query Response: ", response)
+top_agent = OpenAIAgent.from_tools(
+    tool_retriever=obj_index.as_retriever(similarity_top_k=3),
+    system_prompt=""" \
+You are an agent designed to answer queries about a set of given cities.
+Please always use the tools provided to answer a question. Do not rely on prior knowledge.\
+
+""",
+    verbose=True,
+)
+# should use Boston agent -> vector tool
+response = top_agent.query("Tell me about the arts and culture in Boston")
 ```
 
 ## OUTPUT:
+![image](https://github.com/user-attachments/assets/16a56c3c-c220-4dd5-82e5-2293d8092410)
 
 
 ## RESULT:
